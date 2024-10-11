@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::fs::{self};
 use plotters::prelude::*;
-use polars::prelude::*;
+mod book_data;
+use book_data::book_data::BookData;
 
 fn read_bookfile(file_path: &str) -> String {
     let contents = std::fs::read_to_string(file_path)
@@ -24,7 +25,7 @@ fn remove_punctuation(text: &str) -> String {
     cleaned_text.to_ascii_lowercase()
 }
 
-fn process_words(text: &str) -> DataFrame {
+fn process_words(text: &str) -> BookData {
     let total_words = text.split_whitespace().count();
     let mut word_count = HashMap::new();
     for word in text.split_whitespace() {
@@ -43,18 +44,20 @@ fn process_words(text: &str) -> DataFrame {
     frequency = frequency.iter().map(|x| x / freq_sum).collect::<Vec<f64>>();
     
 
-    let df = df!(
-        "Rank" => &rank,
-        "Word" => &words,
-        "Count" => &count,
-        "Frequency" => &frequency
-    ).unwrap();
-    df
+    let bd = BookData {
+        ranks: rank,
+        words: words,
+        counts: count,
+        frequencies: frequency,
+    };
+    bd
 }
 
-fn save_results(df: &mut DataFrame, file_path: &str) {
-    let mut file = std::fs::File::create(file_path).unwrap();
-    CsvWriter::new(&mut file).finish(df).unwrap();
+fn find_teoretical_zipflaw_c(rank_count: i64) -> f64 {
+    let mut r_sum = 0.0;
+    (1..rank_count).for_each(|r| {r_sum += 1_f64 / r as f64});
+    let c = 1_f64 / r_sum;
+    c   
 }
 
 fn process_files_in_folder(folder_path: &str) {
@@ -64,39 +67,74 @@ fn process_files_in_folder(folder_path: &str) {
         if path.is_file() {
             let file_path = path.to_str().unwrap();
             let clear_content = remove_punctuation(&read_bookfile(file_path));
-            let mut processed_df = process_words(&clear_content);
+            let bd = process_words(&clear_content);
             let file_name = path.file_stem().unwrap().to_str().unwrap();
-            let csv_file_path = format!("results/csv/{}.csv", file_name);
-            save_results(&mut processed_df, &csv_file_path);            
-            let plots_file_path = format!("results/plots/{}.png", file_name);
-            plot_results(&processed_df, &plots_file_path);
+            let words_sum: i64 = bd.counts.clone().iter().sum();
+            let csv_file_path = format!("results/csv/{}_{}.csv", file_name, words_sum);
+            bd.save_results(&csv_file_path).unwrap();
+            let lin_plots_file_path = format!("results/plots/{}_lin.png", file_name);
+            plot_results(&bd, &lin_plots_file_path, false);
+            let log_plots_file_path = format!("results/plots/{}_log.png", file_name);
+            plot_results(&bd, &log_plots_file_path, true);
+
         }
     }
 }
 
-// read each file from the results folder and do zipf's law plot on log scale plot
-fn plot_results(df: &DataFrame, file_path: &str) {
+fn plot_results(bd: &BookData, file_path: &str, in_log: bool) {
     let root = BitMapBackend::new(file_path, (800, 600)).into_drawing_area();
     root.fill(&WHITE).unwrap();
-    let rank = df
-        .column("Rank").unwrap().i64().unwrap().into_iter().map(|x| x.unwrap()).collect::<Vec<i64>>();
-    let frequency = df.column("Frequency").unwrap().f64().unwrap().into_iter().map(|x| x.unwrap()).collect::<Vec<f64>>();
+    let rank = bd.ranks.clone();
+    let frequency = bd.frequencies.clone();
     let max_rank = rank.iter().max().unwrap() + 1;
-    let max_frequency = 1.0;
-    let freq_sum: f64 = frequency.iter().sum();
-    println!("Sum of frequencies: {}", freq_sum);
-    let mut chart = ChartBuilder::on(&root)
-        .caption("Zipf's Law", ("Arial", 50).into_font())
-        .margin(5)
-        .x_label_area_size(40)
-        .y_label_area_size(40)
-        .build_cartesian_2d((1..max_rank).log_scale(), (0.00001..max_frequency).log_scale()).unwrap();
-    chart.configure_mesh().draw().unwrap();
-    chart.draw_series(LineSeries::new(
-        rank.into_iter().zip(frequency.into_iter()).map(|(x, y)| (x, y)),
-        &RED,
-    )).unwrap();
-
+    let c = find_teoretical_zipflaw_c(max_rank);
+    if in_log {
+        let mut chart = ChartBuilder::on(&root)
+            .caption("Zipf's Law", ("Arial", 50).into_font())
+            .margin(5)
+            .x_label_area_size(40)
+            .y_label_area_size(40)
+            .build_cartesian_2d((1..max_rank).log_scale(), (0.00001..1_f64).log_scale()).unwrap();
+            chart.configure_mesh()
+            .x_desc("Rank log")
+            .y_desc("Frequency log")
+            .draw().unwrap();
+        chart.draw_series(LineSeries::new(
+            rank.clone().into_iter().zip(frequency.into_iter()).map(|(x, y)| (x, y)),
+            &BLUE,
+        )).unwrap().label("freq/rank");
+        chart.draw_series(LineSeries::new(
+            rank.into_iter().map(|r| (r, c/r as f64)),
+            &RED,
+        )).unwrap().label("Theoretical Zipf Law");
+        chart.configure_series_labels()
+            .border_style(&BLACK)
+            .label_font(("Arial", 20).into_font())
+            .draw().unwrap();
+    } else {
+        let mut chart = ChartBuilder::on(&root)
+            .caption("Zipf's Law", ("Arial", 50).into_font())
+            .margin(5)
+            .x_label_area_size(40)
+            .y_label_area_size(40)
+            .build_cartesian_2d(1..max_rank, 0.00001..0.12).unwrap();
+            chart.configure_mesh()
+            .x_desc("Rank")
+            .y_desc("Frequency")
+            .draw().unwrap();
+        chart.draw_series(LineSeries::new(
+            rank.clone().into_iter().zip(frequency.into_iter()).map(|(x, y)| (x, y)),
+            &BLUE,
+        )).unwrap().label("freq/rank");
+        chart.draw_series(LineSeries::new(
+            rank.into_iter().map(|r| (r, c/r as f64)),
+            &RED,
+        )).unwrap().label("Theoretical Zipf Law");
+        chart.configure_series_labels()
+            .border_style(&BLACK)
+            .label_font(("Arial", 20).into_font())
+            .draw().unwrap();
+    };
 }
 
 fn main() {
