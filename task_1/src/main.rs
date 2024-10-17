@@ -3,6 +3,8 @@ use std::fs::{self};
 use plotters::prelude::*;
 mod book_data;
 use book_data::book_data::BookData;
+mod zipf_mandelbrot_result;
+use zipf_mandelbrot_result::zipf_mandelbrot_result::ZipfMandelbrotResult;
 
 fn read_bookfile(file_path: &str) -> String {
     let contents = std::fs::read_to_string(file_path)
@@ -58,27 +60,6 @@ fn find_teoretical_zipflaw_c(rank_count: i64) -> f64 {
     (1..rank_count).for_each(|r| {r_sum += 1_f64 / r as f64});
     let c = 1_f64 / r_sum;
     c   
-}
-
-fn process_files_in_folder(folder_path: &str) {
-    let paths = fs::read_dir(folder_path).expect("Could not read directory");
-    for path in paths {
-        let path = path.expect("Could not read path").path();
-        if path.is_file() {
-            let file_path = path.to_str().unwrap();
-            let clear_content = remove_punctuation(&read_bookfile(file_path));
-            let bd = process_words(&clear_content);
-            let file_name = path.file_stem().unwrap().to_str().unwrap();
-            let words_sum: i64 = bd.counts.clone().iter().sum();
-            let csv_file_path = format!("results/csv/{}_{}.csv", file_name, words_sum);
-            bd.save_results(&csv_file_path).unwrap();
-            let lin_plots_file_path = format!("results/plots/{}_lin.png", file_name);
-            plot_results(&bd, &lin_plots_file_path, false);
-            let log_plots_file_path = format!("results/plots/{}_log.png", file_name);
-            plot_results(&bd, &log_plots_file_path, true);
-
-        }
-    }
 }
 
 fn plot_results(bd: &BookData, file_path: &str, in_log: bool) {
@@ -137,7 +118,81 @@ fn plot_results(bd: &BookData, file_path: &str, in_log: bool) {
     };
 }
 
+
+fn task_1and2(folder_path: &str) {
+    let paths = fs::read_dir(folder_path).expect("Could not read directory");
+    for path in paths {
+        let path = path.expect("Could not read path").path();
+        if path.is_file() {
+            let file_path = path.to_str().unwrap();
+            let clear_content = remove_punctuation(&read_bookfile(file_path));
+            let bd = process_words(&clear_content);
+            let file_name = path.file_stem().unwrap().to_str().unwrap();
+            let words_sum: i64 = bd.counts.clone().iter().sum();
+            let csv_file_path = format!("results/csv/{}_{}.csv", file_name, words_sum);
+            bd.save_results(&csv_file_path).unwrap();
+            let lin_plots_file_path = format!("results/plots/{}_lin.png", file_name);
+            plot_results(&bd, &lin_plots_file_path, false);
+            let log_plots_file_path = format!("results/plots/{}_log.png", file_name);
+            plot_results(&bd, &log_plots_file_path, true);
+
+        }
+    }
+}
+
+fn calc_zipf_mandelbrot(rank: i64, a: f64, b: f64) -> f64 {
+    1_f64 / (rank as f64 + b).powf(a)
+}
+
+fn fit_zipf_mandelbrot(bd: &BookData) -> (f64, f64) {
+    let a_range = (10..100).map(|x| x as f64 * 0.1).collect::<Vec<f64>>();
+    let b_range = (10..100).map(|x| x as f64 * 0.1).collect::<Vec<f64>>();
+    let mut best_a = 0.0;
+    let mut best_b = 0.0;
+    let mut best_error = f64::MAX;
+    for a in &a_range {
+        for b in &b_range {
+            let mut error = 0.0;
+            for (i, rank) in bd.ranks.iter().enumerate() {
+                let freq = calc_zipf_mandelbrot(*rank, *a, *b);
+                error += (freq - bd.frequencies[i]).powf(2.0);
+            }
+            if error < best_error {
+                best_error = error;
+                best_a = *a;
+                best_b = *b;
+            }
+        }
+    }
+    (best_a, best_b)
+}
+
+fn task_3(folder_path: &str) {
+    let mut results: Vec<ZipfMandelbrotResult> = Vec::new();
+    let paths = fs::read_dir(folder_path).expect("Could not read directory");
+    for path in paths {
+        let path = path.expect("Could not read path").path();
+        if path.is_file() {
+            let file_path = path.to_str().unwrap();
+            let clear_content = remove_punctuation(&read_bookfile(file_path));
+            let bd = process_words(&clear_content);
+            let file_name = path.file_stem().unwrap().to_str().unwrap();
+            let (a,b) = fit_zipf_mandelbrot(&bd);
+            results.push(ZipfMandelbrotResult {
+                language: file_name.to_string(),
+                a: a,
+                b: b,
+                });
+        }
+    }
+    for result in results {
+        println!("{}: a = {}, b = {}", result.language, result.a, result.b);
+    }
+}
+
 fn main() {
     let folder_path = "books";
-    process_files_in_folder(folder_path);
+    task_1and2(folder_path);
+    let folder_path_2 = "iliad";
+    task_3(folder_path_2);
 }
