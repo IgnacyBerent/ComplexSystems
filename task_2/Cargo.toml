@@ -5,3 +5,4 @@ edition = "2021"
 
 [dependencies]
 plotly = "0.10.0"
+nalgebra = "0.33.1"

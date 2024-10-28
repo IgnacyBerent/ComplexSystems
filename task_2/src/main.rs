@@ -1,6 +1,10 @@
-use plotly::common::{Mode, Title};
+use std::vec;
+
+use plotly::color::Color;
+use plotly::common::{Line, Mode, Title};
 use plotly::layout::{Axis, Layout};
-use plotly::{Plot, Scatter};
+use plotly::{Plot, Scatter, color};
+use nalgebra::{Matrix2, Vector2};
 
 struct Solution {
     x_0: f64,
@@ -56,6 +60,98 @@ fn task_1() {
     }
 }
 
+fn task_2() {
+    let systems = vec![system_1, system_2, system_3, system_4];
+    let systems_names = vec!["x''-x=0", "x''+sin(x)=0", "x''+x-x^3=0", "x''-x+x^3=0"];
+    let dt = 0.1;
+    // make fucntion to make initial condidiotns for grid from -10, -10 to 10, 10
+    let initial_conditions = (-10..=10).step_by(2).flat_map(|x| {
+        (-10..=10).step_by(2).map(move |y| (x as f64, y as f64))
+    }).collect::<Vec<(f64, f64)>>();
+    for i in 0..systems.len() {
+        let mut plot = Plot::new();
+        for condition in initial_conditions.clone() {
+            let mut t = 0.0;
+            let mut x = condition.0;
+            let mut y = condition.1;
+            let mut x_axis = vec![x];
+            let mut y_axis = vec![y];
+            while t < 10.0 {
+                let (next_x, next_y) = midpoint_method(x, y, systems[i], dt);
+                t += dt;
+                x = next_x;
+                y = next_y;
+                x_axis.push(x);
+                y_axis.push(y);
+            }
+            let trace = Scatter::new(x_axis, y_axis)
+                .mode(Mode::Lines)
+                .name(format!("x_0 = ({}, {})", condition.0, condition.1))
+                .line(Line::new().color(color::NamedColor::Black))
+                ;
+            plot.add_trace(trace);       
+        } 
+        let layout = Layout::new()
+        .title(Title::from(systems_names[i]))
+        .x_axis(Axis::new().title(Title::from("x")).range(vec![-10.0, 10.0]))
+        .y_axis(Axis::new().title(Title::from("y")).range(vec![-10.0, 10.0]));
+        plot.set_layout(layout);
+        plot.show();
+    }
+}
+
+fn system_1() -> (fn(f64, f64) -> f64, fn(f64, f64) -> f64) {
+    let fx: fn(f64, f64) -> f64 = |x, y| y;
+    let fy: fn(f64, f64) -> f64 = |x, y| -x;
+    (fx, fy)
+}
+
+fn system_2() -> (fn(f64, f64) -> f64, fn(f64, f64) -> f64) {
+    let fx: fn(f64, f64) -> f64 = |x, y| y;
+    let fy: fn(f64, f64) -> f64 = |x, y| -x.sin();
+    (fx, fy)
+}
+
+fn system_3() -> (fn(f64, f64) -> f64, fn(f64, f64) -> f64) {
+    let fx: fn(f64, f64) -> f64 = |x, y| y;
+    let fy: fn(f64, f64) -> f64 = |x, y| -x + x.powi(3);
+    (fx, fy)
+}
+
+fn system_4() -> (fn(f64, f64) -> f64, fn(f64, f64) -> f64) {
+    let fx: fn(f64, f64) -> f64 = |x, y| y;
+    let fy: fn(f64, f64) -> f64 = |x, y| x - x.powi(3);
+    (fx, fy)
+}
+
+fn midpoint_method(
+    xn: f64,
+    yn: f64,
+    f: fn() -> (fn(f64, f64) -> f64, fn(f64, f64) -> f64), 
+    dt: f64
+) -> (f64, f64) {
+    let (fx, fy) = f();
+    let kx = dt*fx(xn, yn);
+    let ky = dt*fy(xn, yn);
+    let next_x = xn + dt*fx(xn+ 0.5*kx, yn + 0.5*ky);
+    let next_y = yn + dt*fy(xn+ 0.5*kx, yn + 0.5*ky);
+    (next_x, next_y)
+}
+
+fn task_3(){
+    let A_matrixies = vec![
+        Matrix2::new(-2.0, 1.0, 0.0, 2.0),
+        Matrix2::new(3.0, -4.0, 2.0, -1.0),
+        Matrix2::new(-3.0, -2.0, -1.0, -3.0),
+        Matrix2::new(2.0, 0.0, 2.0, 0.0), 
+    ];
+    for A in A_matrixies {
+        let mut plot = Plot::new();
+        
+    }
+}
+
 fn main() {
     task_1();
+    task_2();
 }
