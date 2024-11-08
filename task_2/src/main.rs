@@ -1,7 +1,7 @@
 use std::vec;
 
-use plotly::color::Color;
-use plotly::common::{Line, Mode, Title};
+use plotly::color::{Color, Rgb};
+use plotly::common::{ColorScale, Line, Mode, Title};
 use plotly::layout::{Axis, Layout};
 use plotly::{Plot, Scatter, color};
 use nalgebra::{Matrix2, Vector2};
@@ -96,7 +96,7 @@ fn task_2() {
         .x_axis(Axis::new().title(Title::from("x")).range(vec![-10.0, 10.0]))
         .y_axis(Axis::new().title(Title::from("y")).range(vec![-10.0, 10.0]));
         plot.set_layout(layout);
-        plot.show();
+        plot.show_image(plotly::ImageFormat::JPEG, 1000, 800);
     }
 }
 
@@ -139,19 +139,110 @@ fn midpoint_method(
 }
 
 fn task_3(){
-    let A_matrixies = vec![
+    let mut sys_num = 1;
+    let t_range = 4.0;
+    let initial_con_range = 6;
+    let dt = 0.1;
+    let initial_conditions = (-initial_con_range..=initial_con_range).step_by(2).flat_map(|x1| {
+        (-initial_con_range..=initial_con_range).step_by(2).map(move |x2| (x1 as f64, x2 as f64))
+    }).collect::<Vec<(f64, f64)>>();
+    let a_matrixies: Vec<nalgebra::Matrix<f64, nalgebra::Const<2>, nalgebra::Const<2>, nalgebra::ArrayStorage<f64, 2, 2>>> = vec![
         Matrix2::new(-2.0, 1.0, 0.0, 2.0),
         Matrix2::new(3.0, -4.0, 2.0, -1.0),
         Matrix2::new(-3.0, -2.0, -1.0, -3.0),
         Matrix2::new(2.0, 0.0, 2.0, 0.0), 
     ];
-    for A in A_matrixies {
+
+    draw_state_graph(a_matrixies.clone());
+
+    for A in a_matrixies {
         let mut plot = Plot::new();
-        
+        for condition in initial_conditions.clone() {
+            let mut t = 0.0;
+            let mut x = Vector2::new(condition.0, condition.1);
+            let mut x1_axis = vec![x[0]];
+            let mut x2_axis = vec![x[1]];
+            while t < t_range {
+                x = linear_midpoint_method(A, x, dt);
+                t += dt;
+                x1_axis.push(x[0]);
+                x2_axis.push(x[1]);
+            }
+            add_gradient_traces(&mut plot, x1_axis, x2_axis);      
+        }
+        let layout = Layout::new()
+        .title(Title::from("Linear system ".to_string() + &sys_num.to_string()))
+        .x_axis(Axis::new().title(Title::from("x1")).range(vec![-20.0, 20.0]))
+        .y_axis(Axis::new().title(Title::from("x2")).range(vec![-20.0, 20.0]));
+        plot.set_layout(layout);
+        //plot.show();
+        plot.show_image(plotly::ImageFormat::JPEG, 1000, 800);
+        sys_num += 1;
     }
 }
 
+fn draw_state_graph(a_matrixies: Vec<nalgebra::Matrix<f64, nalgebra::Const<2>, nalgebra::Const<2>, nalgebra::ArrayStorage<f64, 2, 2>>>) {
+    // Draw parabole
+    // make T_axis as range from -10 to 10 with step 0.1
+    let T_axis = (-100..=100).map(|T| T as f32 * 0.1).collect::<Vec<f32>>();
+    let D_curve = T_axis.clone().into_iter().map(|T| T*T/4.0).collect::<Vec<f32>>();
+    let mut plot = Plot::new();
+    let trace = Scatter::new(T_axis, D_curve)
+        .mode(Mode::Lines)
+        .name("D=T^2/4")
+        .line(Line::new().color(color::NamedColor::Red));
+    plot.add_trace(trace);
+    // Draw each system position
+    let mut sys_num = 1;
+    for A in a_matrixies {
+        let trace = A.trace();
+        let det = A.determinant();
+        let trace = Scatter::new(vec![trace], vec![det])
+            .mode(Mode::Markers)
+            .name(format!("System = {}", sys_num));
+        plot.add_trace(trace);
+        sys_num += 1;
+    }
+    let layout = Layout::new()
+    .title(Title::from("System position"))
+    .x_axis(Axis::new().title(Title::from("trace")).range(vec![-10.0, 10.0]))
+    .y_axis(Axis::new().title(Title::from("det")).range(vec![-10.0, 10.0]));
+    plot.set_layout(layout);
+    plot.show_image(plotly::ImageFormat::JPEG, 1000, 800);
+}
+
+fn add_gradient_traces(plot: &mut Plot, x: Vec<f64>, y: Vec<f64>) {
+    let num_segments = x.len();
+    for i in 0..num_segments-1 {
+        let x_segment = vec![x[i], x[i+1]];
+        let y_segment = vec![y[i], y[i+1]];
+
+        let red = 255 - (i * 255 / num_segments) as u8;
+        let blue = (i * 255 / num_segments) as u8;
+        let color = Rgb::new(red, 0, blue);
+
+        let trace = Scatter::new(x_segment, y_segment.clone())
+            .mode(Mode::Lines)
+            .line(Line::new().color(color));
+        plot.add_trace(trace);
+    }
+}
+
+fn linear_eq_system(a: Matrix2<f64>, x: Vector2<f64>) -> Vector2<f64> {
+    let x_dot: Vector2<f64> = a*x;
+    x_dot
+}
+
+fn linear_midpoint_method(a: Matrix2<f64>, x: Vector2<f64>, dt: f64) -> Vector2<f64>  {
+    let k: Vector2<f64> = dt * linear_eq_system(a, x);
+
+    let dx_dot: Vector2<f64> = x + dt * linear_eq_system(a, x+0.5*k);
+    dx_dot
+}
+
+
 fn main() {
-    task_1();
-    task_2();
+    //task_1();
+    //task_2();
+    task_3();
 }
