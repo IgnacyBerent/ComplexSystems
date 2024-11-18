@@ -284,9 +284,9 @@ fn linear_midpoint_method(a: Matrix2<f64>, x: Vector2<f64>, dt: f64) -> Vector2<
 fn task_4() {
     let dt = 0.1;
     // make fucntion to make initial condidiotns for grid from -10, -10 to 10, 10
-    let initial_conditions = (-10..=10)
+    let initial_conditions = (0..=20)
         .step_by(2)
-        .flat_map(|x| (-10..=10).step_by(2).map(move |y| (x as f64, y as f64)))
+        .flat_map(|x| (0..=20).step_by(2).map(move |y| (x as f64, y as f64)))
         .collect::<Vec<(f64, f64)>>();
     let mut plot = Plot::new();
     for condition in initial_conditions.clone() {
@@ -306,8 +306,8 @@ fn task_4() {
         add_gradient_traces(&mut plot, x_axis, y_axis);
     }
     let layout = Layout::new()
-        .x_axis(Axis::new().title(Title::from("x")).range(vec![-25.0, 25.0]))
-        .y_axis(Axis::new().title(Title::from("y")).range(vec![-25.0, 25.0]));
+        .x_axis(Axis::new().title(Title::from("x")).range(vec![0, 30]))
+        .y_axis(Axis::new().title(Title::from("y")).range(vec![0, 30]));
     plot.set_layout(layout);
     plot.show_image(plotly::ImageFormat::JPEG, 1000, 800);
 }
