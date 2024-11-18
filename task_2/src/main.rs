@@ -160,7 +160,7 @@ fn task_3() {
         Matrix2::new(-2.0, 1.0, 0.0, 2.0),
         Matrix2::new(3.0, -4.0, 2.0, -1.0),
         Matrix2::new(-3.0, -2.0, -1.0, -3.0),
-        Matrix2::new(2.0, 0.0, 2.0, 0.0),
+        Matrix2::new(2.0, 0.0, 0.0, 2.0),
     ];
 
     draw_state_graph(a_matrixies.clone());
