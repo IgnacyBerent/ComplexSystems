@@ -1,12 +1,7 @@
 #[cfg(not(target_arch = "wasm32"))]
 use plotters::prelude::BitMapBackend;
-#[cfg(target_arch = "wasm32")]
-use plotters::prelude::CanvasBackend;
 use plotters::prelude::*;
-use plotters_canvas::CanvasBackend;
 use rand::Rng;
-use std::thread::sleep;
-use std::time::Duration;
 
 struct Site {
     height: u32,
@@ -65,52 +60,50 @@ impl OsloModel {
         return s as f32 / self.smax as f32;
     }
 
-    fn print(&self) {
-        for site in &self.sites {
-            println!("{}", site.height);
-        }
-        println!();
+    fn run_once(&mut self) -> f32 {
+        self.drive();
+        return self.relax();
     }
 }
 
 fn make_simulation(size: u32) {
+    const OUT_FILE_NAME: &str = "oslo_model.gif";
     let mut sim = OsloModel::new(size);
+    let axis_size = (size as f32 * 1.1) as i32;
 
-    #[cfg(not(target_arch = "wasm32"))]
-    let root = BitMapBackend::new("plot.png", (640, 480)).into_drawing_area();
-    #[cfg(target_arch = "wasm32")]
-    let root = CanvasBackend::new("plot").unwrap().into_drawing_area();
-
-    for _ in 0..1000 {
-        sim.print();
-        // Clear the drawing area by filling it with white color
+    let root = BitMapBackend::gif(OUT_FILE_NAME, (800, 600), 200)
+        .unwrap()
+        .into_drawing_area();
+    for _ in 0..500 {
         root.fill(&WHITE).unwrap();
-
+        sim.run_once();
         let mut chart = ChartBuilder::on(&root)
-            .caption("Simulation", ("sans-serif", 50).into_font())
-            .build_cartesian_2d(0..size, 0..(size as f32 * 1.2) as i32)
+            .caption("Oslo Model", ("sans-serif", 30).into_font())
+            .margin(5)
+            .x_label_area_size(30)
+            .y_label_area_size(30)
+            .build_cartesian_2d(0..size as i32, 0..axis_size)
             .unwrap();
 
-        chart.configure_mesh().draw().unwrap();
-
-        sim.drive();
-        sim.relax();
-
-        let heights = sim
-            .sites
-            .iter()
-            .map(|site| site.height as i32)
-            .collect::<Vec<i32>>();
+        let mut data = vec![];
+        for (i, site) in sim.sites.iter().enumerate() {
+            data.push((i as i32, site.height as i32));
+        }
 
         chart
-            .draw_series(LineSeries::new((0..).zip(heights.iter().cloned()), &RED))
+            .draw_series(LineSeries::new(data.iter().map(|(x, y)| (*x, *y)), &RED))
+            .unwrap();
+        chart
+            .configure_mesh()
+            .x_label_formatter(&|x| format!("{}", x))
+            .draw()
             .unwrap();
 
         root.present().unwrap();
-        sleep(Duration::from_millis(350));
     }
 }
 
 fn main() {
     let size = 50;
+    make_simulation(size);
 }
