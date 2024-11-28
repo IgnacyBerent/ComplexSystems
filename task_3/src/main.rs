@@ -1,109 +1,223 @@
-#[cfg(not(target_arch = "wasm32"))]
-use plotters::prelude::BitMapBackend;
-use plotters::prelude::*;
+use plotly::common::{Mode, Title};
+use plotly::layout::{Axis, AxisType, Layout};
+use plotly::{Plot, Scatter};
 use rand::Rng;
+use std::collections::HashMap;
 
-struct Site {
-    height: u32,
-    treshold: u8,
+use std::collections::VecDeque;
+
+struct FixedSizeDeque<T> {
+    deque: VecDeque<T>,
+    max_size: usize,
+}
+
+impl<T> FixedSizeDeque<T> {
+    fn new(max_size: usize) -> Self {
+        Self {
+            deque: VecDeque::with_capacity(max_size),
+            max_size,
+        }
+    }
+
+    fn push(&mut self, value: T) {
+        if self.deque.len() == self.max_size {
+            self.deque.pop_front();
+        }
+        self.deque.push_back(value);
+    }
+
+    fn pop_front(&mut self) -> Option<T> {
+        self.deque.pop_front()
+    }
+
+    fn len(&self) -> usize {
+        self.deque.len()
+    }
 }
 
 struct OsloModel {
-    sites: Vec<Site>,
-    smax: u32,
+    size: u32,
+    slopes: Vec<u32>,
+    tresholds: Vec<u8>,
 }
 
 impl OsloModel {
     fn new(size: u32) -> OsloModel {
         let mut rng = rand::thread_rng();
-        let mut sites: Vec<Site> = (0..=size)
-            .map(|_| Site {
-                height: rng.gen_range(0..=size),
-                treshold: rng.gen_range(1..=2),
-            })
-            .collect();
-        sites.push(Site {
-            height: 0,
-            treshold: 0,
-        });
-        OsloModel { sites, smax: size }
+
+        // Initialize system in stable configuration where zi < ziT for all i
+        let slopes = (0..size).map(|_| rng.gen_range(0..=1)).collect();
+        let tresholds = (0..size).map(|_| rng.gen_range(1..=2)).collect();
+
+        OsloModel {
+            size,
+            slopes,
+            tresholds,
+        }
     }
 
     fn drive(&mut self) {
-        self.sites[0].height += 1;
+        // Adding grain to the first site increases the slope by 1
+        self.slopes[0] += 1;
     }
 
-    fn will_move(&self, i: u32) -> bool {
-        if self.sites[i as usize].height as i32 - self.sites[i as usize + 1].height as i32
-            >= self.sites[i as usize].treshold as i32
-        {
-            return true;
-        }
-        return false;
-    }
-
-    fn relax(&mut self) -> f32 {
+    fn relax(&mut self) -> (u32, u32) {
         let mut rng = rand::thread_rng();
         let mut s = 0;
-        for i in 0..=self.smax {
-            if self.will_move(i) {
-                // Move grain from current site
-                self.sites[i as usize].height -= 1;
-                // Update treshold
-                self.sites[i as usize].treshold = rng.gen_range(1..=2);
-                // Move grain to next site
-                self.sites[i as usize + 1].height += 1;
-                s += 1;
+        let mut efflux = 0;
+        loop {
+            let mut moved = false;
+            for ii in 0..self.size {
+                let i: usize = ii as usize;
+                if self.slopes[i] > self.tresholds[i] as u32 {
+                    if i == 0 {
+                        self.slopes[i] -= 2;
+                        self.slopes[i + 1] += 1;
+                    } else if ii == self.size - 1 {
+                        self.slopes[i] -= 1;
+                        self.slopes[i - 1] += 1;
+                        efflux += 1;
+                    } else {
+                        self.slopes[i] -= 2;
+                        self.slopes[i + 1] += 1;
+                        self.slopes[i - 1] += 1;
+                    }
+                    // Choose new treshold
+                    self.tresholds[i] = rng.gen_range(1..=2);
+                    s += 1;
+                    moved = true;
+                }
+            }
+            if !moved {
+                break;
             }
         }
-        self.sites[self.smax as usize + 1].height = 0;
-        return s as f32 / self.smax as f32;
+        return (s, efflux);
     }
 
-    fn run_once(&mut self) -> f32 {
-        self.drive();
-        return self.relax();
+    fn run(&mut self, n: u32) -> Vec<u32> {
+        let mut sizes = vec![0];
+        for _ in 0..n {
+            self.drive();
+            let (s, _) = self.relax();
+            sizes.push(s);
+        }
+        sizes
     }
-}
 
-fn make_simulation(size: u32) {
-    const OUT_FILE_NAME: &str = "oslo_model.gif";
-    let mut sim = OsloModel::new(size);
-    let axis_size = (size as f32 * 1.1) as i32;
-
-    let root = BitMapBackend::gif(OUT_FILE_NAME, (800, 600), 200)
-        .unwrap()
-        .into_drawing_area();
-    for _ in 0..500 {
-        root.fill(&WHITE).unwrap();
-        sim.run_once();
-        let mut chart = ChartBuilder::on(&root)
-            .caption("Oslo Model", ("sans-serif", 30).into_font())
-            .margin(5)
-            .x_label_area_size(30)
-            .y_label_area_size(30)
-            .build_cartesian_2d(0..size as i32, 0..axis_size)
-            .unwrap();
-
-        let mut data = vec![];
-        for (i, site) in sim.sites.iter().enumerate() {
-            data.push((i as i32, site.height as i32));
+    fn run_with_treshold(&mut self, n: u32, treshold: f32) -> Vec<u32> {
+        let mut sizes = vec![0];
+        let mut influx_window: FixedSizeDeque<u32> = FixedSizeDeque::new(100);
+        let mut efflux_window: FixedSizeDeque<u32> = FixedSizeDeque::new(100);
+        let mut t = 0;
+        loop {
+            self.drive();
+            let (_, e) = self.relax();
+            efflux_window.push(e);
+            influx_window.push(1);
+            if influx_window.len() == 100 {
+                let influx: u32 = influx_window.deque.iter().sum();
+                let efflux: u32 = efflux_window.deque.iter().sum();
+                if efflux as f32 / influx as f32 > treshold {
+                    println!("Treshold reached at t = {}", t);
+                    break;
+                }
+            }
+            t += 1;
+        }
+        for _ in 0..n {
+            self.drive();
+            let (s, _) = self.relax();
+            sizes.push(s);
         }
 
-        chart
-            .draw_series(LineSeries::new(data.iter().map(|(x, y)| (*x, *y)), &RED))
-            .unwrap();
-        chart
-            .configure_mesh()
-            .x_label_formatter(&|x| format!("{}", x))
-            .draw()
-            .unwrap();
+        return sizes;
+    }
 
-        root.present().unwrap();
+    fn plot_size_in_time(&self, scaled_sizes: Vec<f32>) {
+        let mut plot = Plot::new();
+
+        let trace =
+            Scatter::new(Vec::from_iter(0..=scaled_sizes.len()), scaled_sizes).mode(Mode::Markers);
+        let layout = Layout::new()
+            .title(Title::from(format!(
+                "Scaled Size in time for Oslo size = {}",
+                self.size
+            )))
+            .x_axis(Axis::new().title(Title::from("Time")))
+            .y_axis(Axis::new().title(Title::from("Scaled size of avalanche")));
+
+        plot.add_trace(trace);
+        plot.set_layout(layout);
+        plot.show_image(plotly::ImageFormat::JPEG, 1000, 800);
+    }
+
+    fn plot_size_to_probability(&self, sizes: Vec<u32>) {
+        let mut occurance = HashMap::new();
+        let n_of_values = sizes.len();
+        for size in sizes {
+            let count = occurance.entry(size).or_insert(0);
+            *count += 1;
+        }
+
+        let mut plot = Plot::new();
+        let trace = Scatter::new(
+            occurance.keys().cloned().collect(),
+            occurance
+                .values()
+                .cloned()
+                .map(|v| v as f32 / n_of_values as f32)
+                .collect(),
+        )
+        .mode(Mode::Markers);
+        let layout = Layout::new()
+            .title(Title::from(format!(
+                "Avalanche size probability for Oslo size = {}",
+                self.size
+            )))
+            .x_axis(
+                Axis::new()
+                    .type_(AxisType::Log)
+                    .title(Title::from("Avalanche size")),
+            )
+            .y_axis(
+                Axis::new()
+                    .type_(AxisType::Log)
+                    .title(Title::from("Probability")),
+            );
+
+        plot.add_trace(trace);
+        plot.set_layout(layout);
+        plot.show_image(plotly::ImageFormat::JPEG, 1000, 800);
+    }
+
+    fn run_and_analyse(&mut self, n: u32) {
+        let sizes = self.run(n);
+
+        // scale sizes
+        let scaled_sizes: Vec<f32> = sizes.iter().map(|&s| s as f32 / self.size as f32).collect();
+
+        self.plot_size_in_time(scaled_sizes);
+        self.plot_size_to_probability(sizes);
+    }
+
+    fn run_and_analyse_with_treshold(&mut self, n: u32, treshold: f32) {
+        let sizes = self.run_with_treshold(n, treshold);
+
+        // scale sizes
+        let scaled_sizes: Vec<f32> = sizes.iter().map(|&s| s as f32 / self.size as f32).collect();
+
+        self.plot_size_in_time(scaled_sizes);
+        self.plot_size_to_probability(sizes);
     }
 }
 
 fn main() {
-    let size = 50;
-    make_simulation(size);
+    let mut model = OsloModel::new(64);
+    model.run_and_analyse(50000);
+    let sizes = vec![64, 128, 256, 512, 1024];
+    for size in sizes {
+        let mut model = OsloModel::new(size);
+        model.run_and_analyse_with_treshold(50000, 0.9);
+    }
 }
