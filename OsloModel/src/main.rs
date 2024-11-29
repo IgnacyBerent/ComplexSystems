@@ -152,7 +152,7 @@ impl OsloModel {
         plot.show_image(plotly::ImageFormat::JPEG, 1000, 800);
     }
 
-    fn plot_size_to_probability(&self, sizes: Vec<u32>) {
+    fn plot_size_to_probability(&self, sizes: Vec<u32>) -> Box<Scatter<u32, f32>> {
         let mut occurance = HashMap::new();
         let n_of_values = sizes.len();
         for size in sizes {
@@ -161,7 +161,7 @@ impl OsloModel {
         }
 
         let mut plot = Plot::new();
-        let trace = Scatter::new(
+        let trace: Box<Scatter<u32, f32>> = Scatter::new(
             occurance.keys().cloned().collect(),
             occurance
                 .values()
@@ -169,7 +169,8 @@ impl OsloModel {
                 .map(|v| v as f32 / n_of_values as f32)
                 .collect(),
         )
-        .mode(Mode::Markers);
+        .mode(Mode::Markers)
+        .name(format!("Oslo size = {}", self.size));
         let layout = Layout::new()
             .title(Title::from(format!(
                 "Avalanche size probability for Oslo size = {}",
@@ -186,38 +187,56 @@ impl OsloModel {
                     .title(Title::from("Probability")),
             );
 
-        plot.add_trace(trace);
+        plot.add_trace(trace.clone());
         plot.set_layout(layout);
         plot.show_image(plotly::ImageFormat::JPEG, 1000, 800);
+        return trace;
     }
 
-    fn run_and_analyse(&mut self, n: u32) {
-        let sizes = self.run(n);
+    fn run_and_analyse(&mut self, n: u32, treshold: Option<f32>) -> Box<Scatter<u32, f32>> {
+        let sizes = match treshold {
+            Some(t) => self.run_with_treshold(n, t),
+            None => self.run(n),
+        };
 
         // scale sizes
         let scaled_sizes: Vec<f32> = sizes.iter().map(|&s| s as f32 / self.size as f32).collect();
 
         self.plot_size_in_time(scaled_sizes);
-        self.plot_size_to_probability(sizes);
+        return self.plot_size_to_probability(sizes);
     }
+}
 
-    fn run_and_analyse_with_treshold(&mut self, n: u32, treshold: f32) {
-        let sizes = self.run_with_treshold(n, treshold);
-
-        // scale sizes
-        let scaled_sizes: Vec<f32> = sizes.iter().map(|&s| s as f32 / self.size as f32).collect();
-
-        self.plot_size_in_time(scaled_sizes);
-        self.plot_size_to_probability(sizes);
+fn plot_together(traces: Vec<Box<Scatter<u32, f32>>>) {
+    let mut plot = Plot::new();
+    let layout = Layout::new()
+        .x_axis(
+            Axis::new()
+                .type_(AxisType::Log)
+                .title(Title::from("Avalanche size")),
+        )
+        .y_axis(
+            Axis::new()
+                .type_(AxisType::Log)
+                .title(Title::from("Probability")),
+        )
+        .title(Title::from("Avalanche size probability for Oslo models"));
+    for trace in traces {
+        plot.add_trace(trace);
     }
+    plot.set_layout(layout);
+    plot.show_image(plotly::ImageFormat::JPEG, 1000, 800);
 }
 
 fn main() {
     let mut model = OsloModel::new(64);
-    model.run_and_analyse(50000);
+    model.run_and_analyse(50000, None);
     let sizes = vec![64, 128, 256, 512, 1024];
+    let mut traces = vec![];
     for size in sizes {
         let mut model = OsloModel::new(size);
-        model.run_and_analyse_with_treshold(50000, 0.9);
+        let trace = model.run_and_analyse(50000, Some(0.9));
+        traces.push(trace);
     }
+    plot_together(traces);
 }
