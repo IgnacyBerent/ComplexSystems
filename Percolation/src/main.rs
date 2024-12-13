@@ -3,9 +3,11 @@ use plotly::layout::{Annotation, Axis, AxisType, Layout};
 use plotly::{HeatMap, ImageFormat, Plot};
 use rand::Rng;
 use std::cell::RefCell;
+use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::rc::{Rc, Weak};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Site {
     value: u32,
     // left = 0, up = 1, right = 2, down = 3
@@ -47,47 +49,50 @@ impl PercolationLattice {
             sites.push(row);
         }
 
-        for i in 0..l {
-            for j in 0..l {
-                if i > 0 {
-                    sites[i][j]
-                        .borrow_mut()
-                        .neighbours
-                        .push(Some(Rc::downgrade(&sites[i - 1][j])));
-                } else {
-                    sites[i][j].borrow_mut().neighbours.push(None);
-                }
-                if j > 0 {
-                    sites[i][j]
-                        .borrow_mut()
-                        .neighbours
-                        .push(Some(Rc::downgrade(&sites[i][j - 1])));
-                } else {
-                    sites[i][j].borrow_mut().neighbours.push(None);
-                }
-                if i < l - 1 {
-                    sites[i][j]
-                        .borrow_mut()
-                        .neighbours
-                        .push(Some(Rc::downgrade(&sites[i + 1][j])));
-                } else {
-                    sites[i][j].borrow_mut().neighbours.push(None);
-                }
-                if j < l - 1 {
-                    sites[i][j]
-                        .borrow_mut()
-                        .neighbours
-                        .push(Some(Rc::downgrade(&sites[i][j + 1])));
-                } else {
-                    sites[i][j].borrow_mut().neighbours.push(None);
-                }
-            }
-        }
         return PercolationLattice {
             sites: sites,
             l: l,
             p: p,
         };
+    }
+
+    fn initialize_neighbours(&self) {
+        for i in 0..self.l {
+            for j in 0..self.l {
+                if i > 0 {
+                    self.sites[i][j]
+                        .borrow_mut()
+                        .neighbours
+                        .push(Some(Rc::downgrade(&self.sites[i - 1][j])));
+                } else {
+                    self.sites[i][j].borrow_mut().neighbours.push(None);
+                }
+                if j > 0 {
+                    self.sites[i][j]
+                        .borrow_mut()
+                        .neighbours
+                        .push(Some(Rc::downgrade(&self.sites[i][j - 1])));
+                } else {
+                    self.sites[i][j].borrow_mut().neighbours.push(None);
+                }
+                if i < self.l - 1 {
+                    self.sites[i][j]
+                        .borrow_mut()
+                        .neighbours
+                        .push(Some(Rc::downgrade(&self.sites[i + 1][j])));
+                } else {
+                    self.sites[i][j].borrow_mut().neighbours.push(None);
+                }
+                if j < self.l - 1 {
+                    self.sites[i][j]
+                        .borrow_mut()
+                        .neighbours
+                        .push(Some(Rc::downgrade(&self.sites[i][j + 1])));
+                } else {
+                    self.sites[i][j].borrow_mut().neighbours.push(None);
+                }
+            }
+        }
     }
 
     fn burning_method(&self) {
@@ -122,7 +127,7 @@ impl PercolationLattice {
         }
     }
 
-    fn plot_lattice(&self) {
+    fn plot_lattice(&self, title: &str) {
         let mut x = vec![];
         let mut y = vec![];
         let mut z = vec![];
@@ -148,7 +153,7 @@ impl PercolationLattice {
 
         let trace = HeatMap::new(x, y, z);
         let layout = Layout::new()
-            .title(Title::from("Percolation Lattice"))
+            .title(Title::from(title))
             .annotations(text_values);
         let mut plot = Plot::new();
         plot.add_trace(trace);
@@ -188,13 +193,76 @@ impl PercolationLattice {
         }
         max_size
     }
+
+    fn hoshen_kopelman(&self) -> usize {
+        let n = PercolationLattice {
+            sites: self
+                .sites
+                .iter()
+                .map(|row| {
+                    row.iter()
+                        .map(|site| {
+                            Rc::new(RefCell::new(Site {
+                                value: site.borrow().value,
+                                neighbours: vec![],
+                            }))
+                        })
+                        .collect()
+                })
+                .collect(),
+            l: self.l,
+            p: self.p,
+        };
+        n.initialize_neighbours();
+        let mut k = 2;
+        let mut m = HashMap::new();
+        for i in 0..n.l {
+            for j in 0..n.l {
+                if n.sites[i][j].borrow().value == 1 {
+                    n.sites[i][j].borrow_mut().value = k;
+                    m.insert(k, 1);
+                    let mut q = VecDeque::new();
+                    for neighbour in &n.sites[i][j].borrow().neighbours {
+                        if let Some(neighbour) = neighbour {
+                            if let Some(neighbour) = neighbour.upgrade() {
+                                if neighbour.borrow().value == 1 {
+                                    q.push_back(neighbour);
+                                }
+                            }
+                        }
+                    }
+                    while !q.is_empty() {
+                        let site = q.pop_front().unwrap();
+                        m.entry(k).and_modify(|e| *e += 1);
+                        site.borrow_mut().value = k;
+                        for neighbour in &site.borrow().neighbours {
+                            if let Some(neighbour) = neighbour {
+                                if let Some(neighbour) = neighbour.upgrade() {
+                                    if neighbour.borrow().value == 1 {
+                                        q.push_back(neighbour);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    k += 1;
+                }
+            }
+        }
+        n.plot_lattice("Hoshen-Kopelman Clusters");
+        return m.len();
+    }
 }
 
 fn main() {
-    let l = 20;
+    let l = 10;
     let p = 0.55;
     let pl = PercolationLattice::new(l, p);
-    let s = pl.max_cluster_size();
+    pl.initialize_neighbours();
+    let smax = pl.max_cluster_size();
+    let s = pl.hoshen_kopelman();
+    println!("The maximum cluster size is: {}", smax);
+    println!("The number of clusters is: {}", s);
     pl.burning_method();
-    pl.plot_lattice();
+    pl.plot_lattice("Burning Method Result");
 }
