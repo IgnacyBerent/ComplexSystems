@@ -1,5 +1,5 @@
-use plotly::common::{Mode, Title};
-use plotly::layout::{Axis, AxisType, Layout};
+use plotly::common::{Anchor, Font, Mode, Title};
+use plotly::layout::{Annotation, Axis, AxisType, Layout};
 use plotly::{HeatMap, ImageFormat, Plot};
 use rand::Rng;
 use std::cell::RefCell;
@@ -126,26 +126,75 @@ impl PercolationLattice {
         let mut x = vec![];
         let mut y = vec![];
         let mut z = vec![];
+        let mut text_values = vec![];
+
         for i in 0..self.l {
             for j in 0..self.l {
                 x.push(j);
                 y.push(i);
                 z.push(self.sites[i][j].borrow().value);
+                text_values.push(
+                    Annotation::new()
+                        .text(format!("{}", self.sites[i][j].borrow().value))
+                        .x(j as f64)
+                        .y(i as f64)
+                        .show_arrow(false)
+                        .font(Font::new().size(14))
+                        .x_anchor(Anchor::Center)
+                        .y_anchor(Anchor::Middle),
+                );
             }
         }
+
         let trace = HeatMap::new(x, y, z);
-        let layout = Layout::new().title(Title::from("Percolation Lattice"));
+        let layout = Layout::new()
+            .title(Title::from("Percolation Lattice"))
+            .annotations(text_values);
         let mut plot = Plot::new();
         plot.add_trace(trace);
         plot.set_layout(layout);
-        plot.show_image(ImageFormat::PNG, 600, 600)
+        plot.show_image(ImageFormat::PNG, 600, 600);
+    }
+
+    fn dfs(&self, i: usize, j: usize, visited: &mut Vec<Vec<bool>>) -> usize {
+        if i >= self.l || j >= self.l || visited[i][j] || self.sites[i][j].borrow().value == 0 {
+            return 0;
+        }
+        visited[i][j] = true;
+        let mut size = 1;
+        let directions = [(0, 1), (1, 0), (0, -1), (-1, 0)];
+        for &(di, dj) in &directions {
+            let ni = i.wrapping_add(di as usize);
+            let nj = j.wrapping_add(dj as usize);
+            if ni < self.l && nj < self.l {
+                size += self.dfs(ni, nj, visited);
+            }
+        }
+        size
+    }
+
+    fn max_cluster_size(&self) -> usize {
+        let mut visited = vec![vec![false; self.l]; self.l];
+        let mut max_size = 0;
+        for i in 0..self.l {
+            for j in 0..self.l {
+                if !visited[i][j] && self.sites[i][j].borrow().value >= 1 {
+                    let size = self.dfs(i, j, &mut visited);
+                    if size > max_size {
+                        max_size = size;
+                    }
+                }
+            }
+        }
+        max_size
     }
 }
 
 fn main() {
-    let l = 300;
-    let p = 0.65;
+    let l = 20;
+    let p = 0.55;
     let pl = PercolationLattice::new(l, p);
+    let s = pl.max_cluster_size();
     pl.burning_method();
     pl.plot_lattice();
 }
