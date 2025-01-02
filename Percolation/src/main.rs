@@ -220,13 +220,13 @@ impl PercolationLattice {
         };
         n.initialize_neighbours();
         let mut k = 2;
-        let mut m = HashMap::new();
+        let mut m = vec![];
         for i in 0..n.l {
             for j in 0..n.l {
                 if n.sites[i][j].borrow().value == 1 {
+                    let mut size = 1;
                     n.sites[i][j].borrow_mut().value = k;
-                    m.insert(k, 1);
-                    let mut q = VecDeque::new();
+                    let mut q: VecDeque<Rc<RefCell<Site>>> = VecDeque::new();
                     for neighbour in &n.sites[i][j].borrow().neighbours {
                         if let Some(neighbour) = neighbour {
                             if let Some(neighbour) = neighbour.upgrade() {
@@ -238,27 +238,30 @@ impl PercolationLattice {
                     }
                     while !q.is_empty() {
                         let site = q.pop_front().unwrap();
-                        m.entry(k).and_modify(|e| *e += 1);
-                        site.borrow_mut().value = k;
-                        for neighbour in &site.borrow().neighbours {
-                            if let Some(neighbour) = neighbour {
-                                if let Some(neighbour) = neighbour.upgrade() {
-                                    if neighbour.borrow().value == 1 {
-                                        q.push_back(neighbour);
+                        // check if the site has already been visited
+                        if site.borrow().value == 1 {
+                            size += 1;
+                            site.borrow_mut().value = k;
+                            for neighbour in &site.borrow().neighbours {
+                                if let Some(neighbour) = neighbour {
+                                    if let Some(neighbour) = neighbour.upgrade() {
+                                        if neighbour.borrow().value == 1 {
+                                            q.push_back(neighbour);
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                     k += 1;
+                    m.push(size);
                 }
             }
         }
         if plot {
             n.plot_lattice(format!("Hoshen-Kopelman Clusters for p={}", self.p).as_str());
         }
-        let m_vec = m.into_values().collect();
-        return m_vec;
+        return m;
     }
 }
 
@@ -338,10 +341,10 @@ fn monte_carlo_examples() {
 
 fn occupation_probability_examples() {
     let pc = vec![0.592746];
-    let t = 1000;
-    let l = 64;
+    let t = 10000;
+    let l = 100;
     let p_low = vec![0.3, 0.4, 0.5];
-    let p_high = vec![0.7, 0.8, 0.9];
+    let p_high = vec![0.6, 0.7, 0.8];
 
     let layout = Layout::new()
         .title("Cluster Size Distribution")
