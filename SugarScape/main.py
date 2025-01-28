@@ -18,8 +18,6 @@ class SugarScapeAgent:
       metabolism (int): Ammount of sugar consumed by the agent per step.
       vision (int): The distance the agent can see.
       speed (int): The number of steps the agent can take per iteration.
-      stomach_capacity (int): The maximum ammount of sugar the agent can store.
-      max_lifetime (int): The maximum number of steps the agent can take before dying.
     """
 
     def __init__(self, pos):
@@ -89,8 +87,8 @@ class SugarScapeSimulaiton:
         """
         x, y = agent.pos
         vision = agent.vision
-        max_sugar = -1
-        max_sugar_pos_list = []
+        max_sugar = self.sugar_cells[y, x].sugar
+        max_sugar_pos_list = [(x, y)]
         for iy in range(max(y - vision, 0), min(y + vision + 1, self.size)):
             for ix in range(max(x - vision, 0), min(x + vision + 1, self.size)):
                 if self.sugar_cells[iy, ix].sugar > max_sugar and any(
